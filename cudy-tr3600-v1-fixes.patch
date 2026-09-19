@@ -1,0 +1,147 @@
+diff --git a/target/linux/mediatek/dts/mt7987b-cudy-tr3600-v1.dts b/target/linux/mediatek/dts/mt7987b-cudy-tr3600-v1.dts
+index 11eca35128..53d8d639a4 100644
+--- a/target/linux/mediatek/dts/mt7987b-cudy-tr3600-v1.dts
++++ b/target/linux/mediatek/dts/mt7987b-cudy-tr3600-v1.dts
+@@ -13,10 +13,10 @@
+ 
+ 	aliases {
+ 		label-mac-device = &gmac1;
+-		led-boot = &led_status_white;
+-		led-failsafe = &led_status_blue;
+-		led-running = &led_status_blue;
+-		led-upgrade = &led_status_blue;
++		led-boot = &led_status_red;
++		led-failsafe = &led_status_red;
++		led-running = &led_status_white;
++		led-upgrade = &led_status_red;
+ 		serial0 = &uart0;
+ 	};
+ 
+@@ -34,14 +34,14 @@
+ 	gpio-leds {
+ 		compatible = "gpio-leds";
+ 
+-		led_status_blue: led-0 {
+-			color = <LED_COLOR_ID_BLUE>;
++		led_status_white: led-0 {
++			color = <LED_COLOR_ID_WHITE>;
+ 			function = LED_FUNCTION_STATUS;
+ 			gpios = <&pio 48 GPIO_ACTIVE_LOW>;
+ 		};
+ 
+-		led_status_white: led-1 {
+-			color = <LED_COLOR_ID_WHITE>;
++		led_status_red: led-1 {
++			color = <LED_COLOR_ID_RED>;
+ 			function = LED_FUNCTION_STATUS;
+ 			gpios = <&pio 46 GPIO_ACTIVE_LOW>;
+ 		};
+@@ -82,7 +82,8 @@
+ 
+ &fan {
+ 	fan-supply = <&fan_3p3v>;
+-	pwms = <&pwm 1 50000 0>;
++	cooling-levels = <0 64 128 192 255>;
++	pwms = <&pwm 0 50000 0>;
+ 	status = "okay";
+ };
+ 
+@@ -143,16 +144,16 @@
+ 			nvmem-cells = <&eeprom_factory_0>;
+ 			nvmem-cell-names = "eeprom";
+ 
+-			/* Offset 3 keeps the 2.4 GHz MAC distinct from LAN. */
++			/* Vendor layout: 2.4 GHz shares the LAN/base address. */
+ 			band@0 {
+ 				reg = <0>;
+-				nvmem-cells = <&macaddr_bdinfo_de00 3>;
++				nvmem-cells = <&macaddr_bdinfo_de00 0>;
+ 				nvmem-cell-names = "mac-address";
+ 			};
+ 
+ 			band@1 {
+ 				reg = <1>;
+-				nvmem-cells = <&macaddr_bdinfo_de00 2>;
++				nvmem-cells = <&macaddr_bdinfo_de00 16>;
+ 				nvmem-cell-names = "mac-address";
+ 			};
+ 		};
+@@ -160,17 +161,17 @@
+ };
+ 
+ &pio {
+-	pwm1_pins: pwm1-pins {
++	pwm0_pins: pwm0-pins {
+ 		mux {
+ 			function = "pwm";
+-			groups = "pwm1_0";
++			groups = "pwm0";
+ 		};
+ 	};
+ };
+ 
+ &pwm {
+ 	pinctrl-names = "default";
+-	pinctrl-0 = <&pwm1_pins>;
++	pinctrl-0 = <&pwm0_pins>;
+ 	status = "okay";
+ };
+ 
+@@ -277,3 +278,57 @@
+ 	pinctrl-0 = <&uart0_pins>;
+ 	status = "okay";
+ };
++
++&cpu_thermal {
++	trips {
++		cpu_trip_fan_low: fan-low {
++			temperature = <65000>;
++			hysteresis = <5000>;
++			type = "active";
++		};
++
++		cpu_trip_fan_med: fan-med {
++			temperature = <72000>;
++			hysteresis = <5000>;
++			type = "active";
++		};
++
++		cpu_trip_fan_high: fan-high {
++			temperature = <80000>;
++			hysteresis = <5000>;
++			type = "active";
++		};
++
++		cpu_trip_fan_max: fan-max {
++			temperature = <88000>;
++			hysteresis = <5000>;
++			type = "active";
++		};
++	};
++
++	cooling-maps {
++		map0 {
++			trip = <&cpu_trip_fan_low>;
++			cooling-device = <&fan 1 1>;
++			contribution = <1024>;
++		};
++
++		map1 {
++			trip = <&cpu_trip_fan_med>;
++			cooling-device = <&fan 2 2>;
++			contribution = <1024>;
++		};
++
++		map2 {
++			trip = <&cpu_trip_fan_high>;
++			cooling-device = <&fan 3 3>;
++			contribution = <1024>;
++		};
++
++		map3 {
++			trip = <&cpu_trip_fan_max>;
++			cooling-device = <&fan 4 4>;
++			contribution = <1024>;
++		};
++	};
++};

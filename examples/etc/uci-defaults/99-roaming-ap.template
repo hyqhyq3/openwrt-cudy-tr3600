@@ -1,0 +1,99 @@
+#!/bin/sh
+# Example first-boot uci-defaults: Cudy TR3600 as a dumb AP behind a Cudy TR3000
+# router, bridged over WireGuard + GRETAP, dual-band roaming (802.11r/k).
+#
+# Install at buildroot files/etc/uci-defaults/99-roaming-ap BEFORE building.
+# Replace every <PLACEHOLDER>. Runs once on first boot, then deletes itself.
+#
+# Topology:
+#   [main router LAN] --eth0/WAN--> TR3600 ==WG 10.99.0.5/30==> TR3000 (10.99.0.6/30)
+#                                                     + GRETAP bridged into both br-lans
+#   Clients on TR3600 WiFi get DHCP/DNS/gateway from TR3000 (192.168.52.1).
+[ "$(uci -q get network.lan.ipaddr)" = "192.168.52.3" ] && exit 0
+
+uci set system.@system[0].hostname='<HOSTNAME>'
+uci set system.@system[0].timezone='CST-8'
+uci set system.@system[0].zonename='Asia/Shanghai'
+
+# --- dumb AP: static LAN on the upstream router's subnet, bridge MTU 1400 ---
+uci set network.lan.ipaddr='192.168.52.3'
+uci set network.lan.netmask='255.255.255.0'
+uci -q delete network.lan.ip6assign
+uci set network.@device[0].mtu='1400'
+uci add_list network.@device[0].ports='gre4t-gtpcudy'
+
+# --- WireGuard transport (TR3000 side: wgvm has 10.99.0.1/30 + 10.99.0.6/30) ---
+uci set network.wgcudy=interface
+uci set network.wgcudy.proto='wireguard'
+uci set network.wgcudy.private_key='<TR3600_WG_PRIVATE_KEY>'
+uci set network.wgcudy.listen_port='51822'
+uci set network.wgcudy.addresses='10.99.0.5/30'
+uci set network.cudy=wireguard_wgcudy
+uci set network.cudy.public_key='<TR3000_WG_PUBLIC_KEY>'
+uci set network.cudy.endpoint_host='192.168.52.1'
+uci set network.cudy.endpoint_port='51820'
+uci set network.cudy.allowed_ips='10.99.0.6/32'
+uci set network.cudy.persistent_keepalive='25'
+uci set network.cudy.route_allowed_ips='0'
+
+# --- GRETAP L2 tunnel over WG ---
+uci set network.gtpcudy=interface
+uci set network.gtpcudy.proto='gretap'
+uci set network.gtpcudy.ipaddr='10.99.0.5'
+uci set network.gtpcudy.peeraddr='10.99.0.6'
+uci set network.gtpcudy.tunlink='wgcudy'
+uci set network.gtpcudy.mtu='1400'
+uci add_list firewall.@zone[0].network='wgcudy'
+
+# optional: manage LuCI/SSH from the WAN side (upstream router LAN)
+uci set firewall.allow_bootstrap=rule
+uci set firewall.allow_bootstrap.name='Allow-Mgmt-Bootstrap'
+uci set firewall.allow_bootstrap.src='wan'
+uci set firewall.allow_bootstrap.proto='tcp'
+uci set firewall.allow_bootstrap.dest_port='22 80 443'
+uci set firewall.allow_bootstrap.target='ACCEPT'
+uci set firewall.allow_bootstrap.family='ipv4'
+
+uci commit system
+uci commit network
+uci commit firewall
+
+# --- no DHCP server here; upstream router serves the L2 segment ---
+uci set dhcp.lan.ignore='1'
+uci set dhcp.lan.ra='disable'
+uci set dhcp.lan.dhcpv6='disable'
+uci commit dhcp
+
+# --- dual-band roaming: same SSID/PSK + mobility domain as the main AP ---
+# NOTE (hostapd 2.12): do NOT set ieee80211v / bss_transition — the keyword was
+# removed upstream and setting it fails add_iface. BTM is always on.
+uci set wireless.radio0.country='<COUNTRY_CODE>'
+uci set wireless.radio0.channel='11'
+uci set wireless.radio0.htmode='EHT20'
+uci set wireless.default_radio0.disabled='0'
+uci set wireless.default_radio0.ssid='<SSID_24G>'
+uci set wireless.default_radio0.encryption='psk2'
+uci set wireless.default_radio0.key='<WIFI_PASSWORD>'
+uci set wireless.default_radio0.ieee80211r='1'
+uci set wireless.default_radio0.ft_psk_generate_local='1'
+uci set wireless.default_radio0.mobility_domain='ab52'
+uci set wireless.default_radio0.ieee80211k='1'
+uci set wireless.radio1.country='<COUNTRY_CODE>'
+uci set wireless.radio1.channel='149'
+uci set wireless.radio1.htmode='EHT80'
+uci set wireless.default_radio1.disabled='0'
+uci set wireless.default_radio1.ssid='<SSID_5G>'
+uci set wireless.default_radio1.encryption='psk2'
+uci set wireless.default_radio1.key='<WIFI_PASSWORD>'
+uci set wireless.default_radio1.ieee80211r='1'
+uci set wireless.default_radio1.ft_psk_generate_local='1'
+uci set wireless.default_radio1.mobility_domain='ab52'
+uci set wireless.default_radio1.ieee80211k='1'
+uci commit wireless
+
+# --- SSH key (recommended over password) ---
+mkdir -p /etc/dropbear
+echo '<SSH_PUBLIC_KEY>' > /etc/dropbear/authorized_keys
+chmod 600 /etc/dropbear/authorized_keys
+
+exit 0
